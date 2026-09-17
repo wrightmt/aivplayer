@@ -1,0 +1,131 @@
+import { PROTOCOL_VERSION } from '../../../shared/constants';
+import { decodeAudioChunk, parseHubMessage, type AudioChunk, type ClientMessage } from '../../../shared/protocol';
+import { ClockSync } from '../../../shared/sync/clockSync';
+import type { HubState, Library, Role } from '../../../shared/types';
+
+export type LinkStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'rejected';
+
+export interface HubClientEvents {
+  onState?: (s: HubState) => void;
+  onLibrary?: (l: Library) => void;
+  onAudio?: (c: AudioChunk) => void;
+  onWelcome?: (hub: { hubId: string; pcName: string }) => void;
+  onStatus?: (status: LinkStatus, reason?: string) => void;
+}
+
+const PING_MS = 1000;
+const RECONNECT_MS = 1000;
+
+/** WebSocket client for the hub; works in the renderer and in Node 22+ (global WebSocket). */
+export class HubClient {
+  readonly clock = new ClockSync();
+  status: LinkStatus = 'idle';
+  private ws: WebSocket | null = null;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private getUrl: (() => string | null) | null = null;
+  private rejected = false;
+
+  constructor(
+    private readonly hello: { role: Role; pcName: string },
+    readonly events: HubClientEvents = {},
+    private readonly localNow: () => number = () => performance.timeOrigin + performance.now(),
+  ) {}
+
+  /** Connects to whatever URL getUrl returns, reconnecting every second after a drop. */
+  start(getUrl: () => string | null): void {
+    this.getUrl = getUrl;
+    this.rejected = false;
+    this.tryConnect();
+  }
+
+  stop(): void {
+    this.getUrl = null;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.ws?.close();
+    this.ws = null;
+  }
+
+  /** Current hub-clock time in ms. */
+  hubNow(): number {
+    return this.localNow() + this.clock.offset;
+  }
+
+  send(msg: ClientMessage): void {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
+  }
+
+  sendBinary(data: ArrayBuffer): void {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(data);
+  }
+
+  private setStatus(s: LinkStatus, reason?: string): void {
+    this.status = s;
+    this.events.onStatus?.(s, reason);
+  }
+
+  private tryConnect(): void {
+    this.reconnectTimer = null;
+    const url = this.getUrl?.();
+    if (!url) {
+      this.scheduleReconnect();
+      return;
+    }
+    this.setStatus('connecting');
+    const ws = new WebSocket(url);
+    ws.binaryType = 'arraybuffer';
+    this.ws = ws;
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: 'hello', role: this.hello.role, pcName: this.hello.pcName, protocolVersion: PROTOCOL_VERSION }));
+      this.clock.reset();
+      this.ping();
+      this.pingTimer = setInterval(() => this.ping(), PING_MS);
+      this.setStatus('open');
+    };
+    ws.onmessage = (ev: MessageEvent) => {
+      if (typeof ev.data !== 'string') {
+        const chunk = decodeAudioChunk(ev.data as ArrayBuffer);
+        if (chunk) this.events.onAudio?.(chunk);
+        return;
+      }
+      const msg = parseHubMessage(ev.data);
+      if (!msg) return;
+      switch (msg.type) {
+        case 'pong':
+          this.clock.addSample(msg.t0, msg.t1, msg.t2, this.localNow());
+          break;
+        case 'state':
+          this.events.onState?.(msg.state);
+          break;
+        case 'library':
+          this.events.onLibrary?.(msg.library);
+          break;
+        case 'welcome':
+          this.events.onWelcome?.({ hubId: msg.hubId, pcName: msg.pcName });
+          break;
+        case 'error':
+          this.rejected = true;
+          this.setStatus('rejected', msg.reason);
+          break;
+      }
+    };
+    ws.onclose = () => {
+      if (this.pingTimer) clearInterval(this.pingTimer);
+      this.pingTimer = null;
+      if (this.ws === ws) this.ws = null;
+      if (!this.rejected) this.setStatus('closed');
+      if (this.getUrl && !this.rejected) this.scheduleReconnect();
+    };
+    ws.onerror = () => ws.close();
+  }
+
+  private scheduleReconnect(): void {
+    if (!this.reconnectTimer && this.getUrl) this.reconnectTimer = setTimeout(() => this.tryConnect(), RECONNECT_MS);
+  }
+
+  /** Sends a clock-sync ping now (also sent automatically every second). */
+  ping(): void {
+    this.send({ type: 'ping', t0: this.localNow() });
+  }
+}

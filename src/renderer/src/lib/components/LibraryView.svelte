@@ -45,7 +45,6 @@
         <button
           class="row"
           onclick={() => app.send({ type: 'playAlbum', albumId: selected.id, startIndex: i })}
-          ondblclick={() => app.send({ type: 'playAlbum', albumId: selected.id, startIndex: i })}
         >
           <span class="no">{t.trackNo || i + 1}</span>
           <span class="name">{t.title}</span>

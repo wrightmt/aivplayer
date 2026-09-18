@@ -55,12 +55,12 @@ export class Hub {
       wss.once('error', reject);
       wss.once('listening', () => {
         wss.off('error', reject);
+        this.livenessTimer = setInterval(() => this.sweepLiveness(), LIVENESS_SWEEP_MS);
         const addr = wss.address();
         resolve(typeof addr === 'object' && addr ? addr.port : this.opts.port);
       });
       wss.on('connection', (ws) => this.onConnection(ws));
       this.wss = wss;
-      this.livenessTimer = setInterval(() => this.sweepLiveness(), LIVENESS_SWEEP_MS);
     });
   }
 

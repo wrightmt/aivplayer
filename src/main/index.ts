@@ -34,7 +34,7 @@ function flushHubPrefs(): void {
   if (pendingHubPrefs) {
     const prefs = pendingHubPrefs;
     pendingHubPrefs = null;
-    void writeJson(hubPrefsFile, prefs);
+    void writeJson(hubPrefsFile, prefs).catch((err) => console.error('Failed to write hub prefs', err));
   }
 }
 
@@ -138,6 +138,7 @@ async function saveSettings(patch: Partial<LocalSettings>): Promise<LocalSetting
   settings = sanitizeSettings({ ...prev, ...patch }, prev);
   await writeJson(settingsFile, settings);
   if (RELAUNCH_KEYS.some((k) => prev[k] !== settings[k])) {
+    flushHubPrefs();
     app.relaunch();
     app.exit(0);
     return settings;

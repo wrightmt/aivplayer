@@ -11,3 +11,11 @@ win:
       arch: [x64]
   # Skips rcedit/signing, which would need Wine when building on Linux/WSL.
   signAndEditExecutable: false
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: tar.gz
+      arch: [x64]
+  category: AudioVideo
+  synopsis: Eno three-speaker (L-R difference) FLAC player for two PCs

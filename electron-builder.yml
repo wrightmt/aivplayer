@@ -1,0 +1,13 @@
+appId: com.mattwright.aivplayer
+productName: aIVplayer
+directories:
+  output: dist
+files:
+  - out/**
+  - package.json
+win:
+  target:
+    - target: zip
+      arch: [x64]
+  # Skips rcedit/signing, which would need Wine when building on Linux/WSL.
+  signAndEditExecutable: false

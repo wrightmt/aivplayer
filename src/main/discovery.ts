@@ -26,20 +26,30 @@ export class BeaconBroadcaster {
 
   constructor(private readonly opts: BroadcasterOptions) {}
 
-  async start(): Promise<void> {
-    const socket = createSocket({ type: 'udp4', reuseAddr: true });
-    this.socket = socket;
-    socket.on('error', () => undefined); // transient send errors (e.g. adapter down) are not fatal
-    await new Promise<void>((resolve) => socket.bind(0, () => resolve()));
-    socket.setBroadcast(true);
-    const send = () => {
-      const msg = Buffer.from(encodeBeacon(this.opts.beacon));
-      const targets =
-        this.opts.targets?.() ?? broadcastAddresses(networkInterfaces() as Record<string, NetIface[] | undefined>);
-      for (const addr of targets) socket.send(msg, this.opts.port, addr);
-    };
-    send();
-    this.timer = setInterval(send, this.opts.intervalMs ?? BEACON_INTERVAL_MS);
+  start(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const socket = createSocket({ type: 'udp4', reuseAddr: true });
+      this.socket = socket;
+      socket.once('error', reject);
+      socket.bind(0, () => {
+        socket.off('error', reject);
+        // Transient send errors (e.g. an adapter going down) must not be fatal.
+        socket.on('error', () => undefined);
+        socket.setBroadcast(true);
+        this.send();
+        this.timer = setInterval(() => this.send(), this.opts.intervalMs ?? BEACON_INTERVAL_MS);
+        resolve();
+      });
+    });
+  }
+
+  private send(): void {
+    const socket = this.socket;
+    if (!socket) return;
+    const msg = Buffer.from(encodeBeacon(this.opts.beacon));
+    const targets =
+      this.opts.targets?.() ?? broadcastAddresses(networkInterfaces() as Record<string, NetIface[] | undefined>);
+    for (const addr of targets) socket.send(msg, this.opts.port, addr);
   }
 
   stop(): void {

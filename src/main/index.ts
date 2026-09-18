@@ -77,7 +77,16 @@ async function startFront(): Promise<void> {
     port: settings.beaconPort,
     beacon: { protocolVersion: PROTOCOL_VERSION, hubId: settings.hubId, pcName, wsPort: settings.hubPort },
   });
-  await broadcaster.start();
+  try {
+    await broadcaster.start();
+  } catch (e) {
+    // The hub still works; only auto-discovery is lost, so tell the user instead of failing startup.
+    broadcaster = null;
+    hub.dispatch({
+      type: 'notice',
+      message: `Discovery beacon could not start on UDP ${settings.beaconPort}: ${(e as Error).message}. Set this PC's address manually on the rear PC.`,
+    });
+  }
   await rescan();
 }
 

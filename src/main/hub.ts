@@ -21,10 +21,15 @@ interface ClientInfo {
   id: string;
   role: Role;
   pcName: string;
+  lastSeen: number;
 }
 
 /** Drop audio to a rear whose socket is this far behind rather than grow latency unbounded. */
 const MAX_REAR_BUFFERED_BYTES = 2 * 1024 * 1024;
+
+/** How long a registered client may go without a message before it is considered dead. */
+const LIVENESS_TIMEOUT_MS = 6000;
+const LIVENESS_SWEEP_MS = 2000;
 
 export class Hub {
   private wss: WebSocketServer | null = null;
@@ -32,6 +37,7 @@ export class Hub {
   private state: HubState;
   private library: Library;
   private readonly now: () => number;
+  private livenessTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly opts: HubOptions) {
     this.library = opts.library;
@@ -54,14 +60,24 @@ export class Hub {
       });
       wss.on('connection', (ws) => this.onConnection(ws));
       this.wss = wss;
+      this.livenessTimer = setInterval(() => this.sweepLiveness(), LIVENESS_SWEEP_MS);
     });
   }
 
   async stop(): Promise<void> {
+    if (this.livenessTimer) clearInterval(this.livenessTimer);
+    this.livenessTimer = null;
     for (const ws of this.clients.keys()) ws.terminate();
     this.clients.clear();
     await new Promise<void>((resolve) => (this.wss ? this.wss.close(() => resolve()) : resolve()));
     this.wss = null;
+  }
+
+  private sweepLiveness(): void {
+    const cutoff = this.now() - LIVENESS_TIMEOUT_MS;
+    for (const [ws, info] of this.clients) {
+      if (info && info.lastSeen < cutoff) ws.terminate();
+    }
   }
 
   setLibrary(library: Library): void {
@@ -94,6 +110,7 @@ export class Hub {
   private onMessage(ws: WebSocket, data: RawData, isBinary: boolean): void {
     const t1 = this.now();
     const info = this.clients.get(ws);
+    if (info) info.lastSeen = t1;
     if (isBinary) {
       if (info?.role !== 'front') return;
       for (const [peer, peerInfo] of this.clients) {
@@ -113,11 +130,14 @@ export class Hub {
         ws.close(4001, 'protocol mismatch');
         return;
       }
-      const client: ClientInfo = { id: randomUUID(), role: msg.role, pcName: msg.pcName };
+      const client: ClientInfo = { id: randomUUID(), role: msg.role, pcName: msg.pcName, lastSeen: t1 };
       this.clients.set(ws, client);
       this.send(ws, { type: 'welcome', hubId: this.opts.hubId, pcName: this.opts.pcName });
       this.send(ws, { type: 'library', library: this.library });
-      this.dispatch({ type: 'peerJoined', peer: { ...client, connectedAt: this.now(), stats: null } });
+      this.dispatch({
+        type: 'peerJoined',
+        peer: { id: client.id, role: client.role, pcName: client.pcName, connectedAt: this.now(), stats: null },
+      });
       this.send(ws, { type: 'state', state: this.state }); // in case the join changed nothing
       return;
     }
@@ -132,6 +152,12 @@ export class Hub {
         return;
       case 'rearStats':
         this.dispatch({ type: 'peerStats', id: info.id, stats: msg.stats });
+        return;
+      case 'trackEnded':
+      case 'trackFailed':
+      case 'position':
+        if (info.role !== 'front') return;
+        this.dispatch(msg);
         return;
       default:
         this.dispatch(msg);

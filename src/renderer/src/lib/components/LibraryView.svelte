@@ -42,7 +42,11 @@
     {#each selected.trackIds as id, i (id)}
       {@const t = app.library.tracks[id]}
       <li class:playing={current?.id === id}>
-        <button class="row" ondblclick={() => app.send({ type: 'playAlbum', albumId: selected.id, startIndex: i })}>
+        <button
+          class="row"
+          onclick={() => app.send({ type: 'playAlbum', albumId: selected.id, startIndex: i })}
+          ondblclick={() => app.send({ type: 'playAlbum', albumId: selected.id, startIndex: i })}
+        >
           <span class="no">{t.trackNo || i + 1}</span>
           <span class="name">{t.title}</span>
           <span class="muted">{formatTime(t.durationSec)}</span>

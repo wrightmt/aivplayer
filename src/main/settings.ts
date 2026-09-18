@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { DEFAULT_BEACON_PORT, DEFAULT_HUB_PORT } from '../shared/constants';
 import { initialHubState } from '../shared/reducer';
@@ -30,9 +30,14 @@ async function readJson(file: string): Promise<Record<string, unknown> | null> {
 /** Atomic write: temp file then rename, so a crash never leaves half a settings file. */
 export async function writeJson(file: string, value: unknown): Promise<void> {
   await mkdir(dirname(file), { recursive: true });
-  const tmp = `${file}.tmp`;
-  await writeFile(tmp, JSON.stringify(value, null, 2), 'utf8');
-  await rename(tmp, file);
+  const tmp = `${file}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+  try {
+    await writeFile(tmp, JSON.stringify(value, null, 2), 'utf8');
+    await rename(tmp, file);
+  } catch (e) {
+    await unlink(tmp).catch(() => {});
+    throw e;
+  }
 }
 
 const port = (v: unknown, fallback: number): number =>

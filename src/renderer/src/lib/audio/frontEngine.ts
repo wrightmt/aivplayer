@@ -148,12 +148,14 @@ export class FrontEngine {
       return;
     }
     const map = this.map ?? this.refreshTimeMap();
-    if (!map) return;
+    // Without a time map we can't timestamp a chunk, but it's replaceable — drop it silently.
+    // started/trackEnded are not replaceable, so they still go out below with a best-effort timestamp.
+    if (!map && msg.type === 'chunk') return;
     this.handlePlayerEvent(msg, map);
   }
 
-  private handlePlayerEvent(ev: PlayerEvent, map: TimeMap): void {
-    const at = (frame: number) => hubTimeAt(map, frame, SAMPLE_RATE);
+  private handlePlayerEvent(ev: PlayerEvent, map: TimeMap | null): void {
+    const at = (frame: number) => (map ? hubTimeAt(map, frame, SAMPLE_RATE) : this.client.hubNow());
     switch (ev.type) {
       case 'chunk':
         this.client.sendBinary(

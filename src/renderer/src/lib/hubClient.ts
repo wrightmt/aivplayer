@@ -15,6 +15,8 @@ export interface HubClientEvents {
 
 const PING_MS = 1000;
 const RECONNECT_MS = 1000;
+const WATCHDOG_MS = 2000;
+const LIVENESS_TIMEOUT_MS = 6000;
 
 /** WebSocket client for the hub; works in the renderer and in Node 22+ (global WebSocket). */
 export class HubClient {
@@ -22,6 +24,8 @@ export class HubClient {
   status: LinkStatus = 'idle';
   private ws: WebSocket | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private watchdogTimer: ReturnType<typeof setInterval> | null = null;
+  private lastReceived = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private getUrl: (() => string | null) | null = null;
   private rejected = false;
@@ -43,6 +47,10 @@ export class HubClient {
     this.getUrl = null;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+    if (this.pingTimer) clearInterval(this.pingTimer);
+    this.pingTimer = null;
+    if (this.watchdogTimer) clearInterval(this.watchdogTimer);
+    this.watchdogTimer = null;
     this.ws?.close();
     this.ws = null;
   }
@@ -79,11 +87,16 @@ export class HubClient {
     ws.onopen = () => {
       ws.send(JSON.stringify({ type: 'hello', role: this.hello.role, pcName: this.hello.pcName, protocolVersion: PROTOCOL_VERSION }));
       this.clock.reset();
+      this.lastReceived = this.localNow();
       this.ping();
       this.pingTimer = setInterval(() => this.ping(), PING_MS);
+      this.watchdogTimer = setInterval(() => {
+        if (this.ws === ws && this.localNow() - this.lastReceived > LIVENESS_TIMEOUT_MS) ws.close();
+      }, WATCHDOG_MS);
       this.setStatus('open');
     };
     ws.onmessage = (ev: MessageEvent) => {
+      this.lastReceived = this.localNow();
       if (typeof ev.data !== 'string') {
         const chunk = decodeAudioChunk(ev.data as ArrayBuffer);
         if (chunk) this.events.onAudio?.(chunk);
@@ -111,9 +124,12 @@ export class HubClient {
       }
     };
     ws.onclose = () => {
+      if (this.ws !== ws) return;
       if (this.pingTimer) clearInterval(this.pingTimer);
       this.pingTimer = null;
-      if (this.ws === ws) this.ws = null;
+      if (this.watchdogTimer) clearInterval(this.watchdogTimer);
+      this.watchdogTimer = null;
+      this.ws = null;
       if (!this.rejected) this.setStatus('closed');
       if (this.getUrl && !this.rejected) this.scheduleReconnect();
     };

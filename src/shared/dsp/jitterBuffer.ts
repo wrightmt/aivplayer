@@ -41,7 +41,12 @@ export class JitterBuffer {
     if (i > 0 && this.chunks[i - 1].frameIndex === c.frameIndex) return; // duplicate
     this.chunks.splice(i, 0, c);
     if (!this._ref || c.frameIndex > this._ref.frameIndex) this._ref = c;
-    while (this.chunks.length > 1 && this.endFrame! - this.startFrame! > this.maxFrames) this.chunks.shift();
+    let removed = false;
+    while (this.chunks.length > 1 && this.endFrame! - this.startFrame! > this.maxFrames) {
+      this.chunks.shift();
+      removed = true;
+    }
+    if (removed) this._ref = this.chunks[this.chunks.length - 1] ?? null;
     this.cursor = 0;
   }
 
@@ -71,6 +76,7 @@ export class JitterBuffer {
     while (n < this.chunks.length && this.chunks[n].frameIndex + this.chunks[n].frameCount <= frame) n++;
     if (n > 0) {
       this.chunks.splice(0, n);
+      this._ref = this.chunks[this.chunks.length - 1] ?? null;
       this.cursor = 0;
     }
   }

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { chooseFront, type DiscoveryStatus, type SeenFront } from '../shared/beacon';
 import { PROTOCOL_VERSION } from '../shared/constants';
 import { IPC, type FrontStatus } from '../shared/ipc';
-import type { Library, LocalSettings } from '../shared/types';
+import type { HubPrefs, Library, LocalSettings } from '../shared/types';
 import { BeaconBroadcaster, DiscoveryListener } from './discovery';
 import { Hub } from './hub';
 import { scanLibrary } from './library';
@@ -23,6 +23,26 @@ let broadcaster: BeaconBroadcaster | null = null;
 let listener: DiscoveryListener | null = null;
 let frontStatus: FrontStatus = { kind: 'starting' };
 let discovery: DiscoveryStatus = { decision: { kind: 'searching' }, fronts: [], searchingSince: Date.now() };
+
+const PREFS_WRITE_DEBOUNCE_MS = 1000;
+let pendingHubPrefs: HubPrefs | null = null;
+let hubPrefsWriteTimer: ReturnType<typeof setTimeout> | null = null;
+
+function flushHubPrefs(): void {
+  if (hubPrefsWriteTimer) clearTimeout(hubPrefsWriteTimer);
+  hubPrefsWriteTimer = null;
+  if (pendingHubPrefs) {
+    const prefs = pendingHubPrefs;
+    pendingHubPrefs = null;
+    void writeJson(hubPrefsFile, prefs);
+  }
+}
+
+function scheduleHubPrefsWrite(prefs: HubPrefs): void {
+  pendingHubPrefs = prefs;
+  if (hubPrefsWriteTimer) clearTimeout(hubPrefsWriteTimer);
+  hubPrefsWriteTimer = setTimeout(flushHubPrefs, PREFS_WRITE_DEBOUNCE_MS);
+}
 
 function setFrontStatus(s: FrontStatus): void {
   frontStatus = s;
@@ -55,7 +75,7 @@ async function startFront(): Promise<void> {
     pcName,
     library,
     prefs,
-    onPrefsChanged: (p) => void writeJson(hubPrefsFile, p),
+    onPrefsChanged: (p) => scheduleHubPrefsWrite(p),
     onRescan: () => void rescan(),
   });
   try {
@@ -179,6 +199,7 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.on('window-all-closed', () => app.quit());
   app.on('before-quit', () => {
+    flushHubPrefs();
     broadcaster?.stop();
     listener?.stop();
     void hub?.stop();

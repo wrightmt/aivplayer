@@ -1,11 +1,22 @@
 import type { DiscoveryStatus } from '../../../shared/beacon';
-import { NO_BEACON_HINT_MS } from '../../../shared/constants';
+import { DEFAULT_BEACON_PORT, DEFAULT_HUB_PORT, NO_BEACON_HINT_MS } from '../../../shared/constants';
 import type { AppInfo, FrontStatus } from '../../../shared/ipc';
 import type { ClientMessage } from '../../../shared/protocol';
 import type { HubState, Library, LocalSettings, Track } from '../../../shared/types';
 import { FrontEngine } from './audio/frontEngine';
 import { RearEngine } from './audio/rearEngine';
 import { HubClient, type LinkStatus } from './hubClient';
+
+/**
+ * The firewall to point at, named for the platform the app is running on. Getting this wrong is
+ * the most common reason two PCs see each other but never connect.
+ */
+function firewallHint(hubPort: number, beaconPort: number): string {
+  const ua = navigator.userAgent;
+  if (ua.includes('Windows')) return 'Allow aIVplayer through Windows Firewall on Private networks';
+  if (ua.includes('Mac')) return 'Allow aIVplayer through the macOS firewall';
+  return `Open TCP ${hubPort} and UDP ${beaconPort} in the front PC's firewall (ufw, firewalld)`;
+}
 
 export interface Toast {
   id: number;
@@ -48,6 +59,10 @@ class AppModel {
       return rear ? { text: `Rear connected: ${rear.pcName}`, tone: 'ok' } : { text: 'No rear connected', tone: 'muted' };
     }
     if (this.link === 'open') return { text: `Connected to ${this.hubName ?? 'front'}`, tone: 'ok' };
+    if (this.link === 'awaiting') {
+      const front = this.discovery?.decision.kind === 'connect' ? this.discovery.decision.front?.pcName : null;
+      return { text: `Waiting to be allowed on ${front ?? 'the front PC'} — approve it there`, tone: 'warn' };
+    }
     if (this.link === 'rejected') return { text: this.linkReason ?? 'Front rejected this PC', tone: 'error' };
     const d = this.discovery?.decision;
     switch (d?.kind) {
@@ -61,7 +76,10 @@ class AppModel {
         const since = this.discovery?.searchingSince ?? this.clockTick;
         if (this.clockTick - since > NO_BEACON_HINT_MS) {
           return {
-            text: 'No front found. Allow aIVplayer through Windows Firewall on Private networks, or set the front IP in Settings.',
+            text: `No front found. ${firewallHint(
+              this.settings?.hubPort ?? DEFAULT_HUB_PORT,
+              this.settings?.beaconPort ?? DEFAULT_BEACON_PORT,
+            )}, or set the front IP in Settings.`,
             tone: 'warn',
           };
         }
@@ -78,7 +96,7 @@ class AppModel {
     const role = settings.role;
     if (!role) return;
 
-    const client = new HubClient({ role, pcName: info.pcName }, {
+    const client = new HubClient({ role, pcName: info.pcName, peerId: settings.hubId, token: settings.pairToken }, {
       onState: (s) => this.onState(s),
       onLibrary: (l) => {
         this.library = l;
@@ -88,6 +106,7 @@ class AppModel {
         if (this.engine instanceof RearEngine) this.engine.pushChunk(c);
       },
       onWelcome: (h) => (this.hubName = h.pcName),
+      onPaired: (token) => void this.saveSettings({ pairToken: token }),
       onStatus: (s, reason) => {
         this.link = s;
         this.linkReason = reason ?? null;
@@ -117,6 +136,19 @@ class AppModel {
 
   send(msg: ClientMessage): void {
     this.client?.send(msg);
+  }
+
+  /** Rear: ask the front again after a refusal or a timeout. */
+  retryConnection(): void {
+    if (!this.client) return;
+    this.client.stop();
+    this.linkReason = null;
+    this.client.start(() => (this.connectedUrl = this.targetUrl()));
+  }
+
+  /** Front: stop trusting a rear, so it has to be allowed again next time. */
+  forgetPeer(peerId: string): void {
+    this.send({ type: 'forgetPeer', peerId });
   }
 
   async saveSettings(patch: Partial<LocalSettings>): Promise<void> {

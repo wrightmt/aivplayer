@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { DEFAULT_BEACON_PORT, DEFAULT_HUB_PORT } from '../shared/constants';
 import { initialHubState } from '../shared/reducer';
-import type { HubPrefs, LocalSettings } from '../shared/types';
+import type { HubPrefs, LocalSettings, PairedPeers } from '../shared/types';
 
 export function defaultSettings(): LocalSettings {
   return {
@@ -15,6 +15,7 @@ export function defaultSettings(): LocalSettings {
     hubPort: DEFAULT_HUB_PORT,
     pairedHubId: null,
     manualHubAddress: null,
+    pairToken: null,
   };
 }
 
@@ -54,6 +55,7 @@ export function sanitizeSettings(raw: Record<string, unknown>, base: LocalSettin
     hubPort: port(raw.hubPort, base.hubPort),
     pairedHubId: 'pairedHubId' in raw ? str(raw.pairedHubId) : base.pairedHubId,
     manualHubAddress: 'manualHubAddress' in raw ? str(raw.manualHubAddress) : base.manualHubAddress,
+    pairToken: 'pairToken' in raw ? str(raw.pairToken) : base.pairToken,
   };
 }
 
@@ -69,4 +71,21 @@ export async function loadHubPrefs(file: string): Promise<HubPrefs> {
   const raw = (await readJson(file)) as Partial<HubPrefs> | null;
   const s = initialHubState(raw ?? undefined);
   return { rear: s.rear, front: s.front };
+}
+
+/** Front only: the rear PCs this hub has allowed, with their tokens. Never sent over the network. */
+export async function loadPairedPeers(file: string): Promise<PairedPeers> {
+  const raw = await readJson(file);
+  const out: PairedPeers = {};
+  for (const [peerId, v] of Object.entries(raw ?? {})) {
+    const r = v as Record<string, unknown>;
+    if (typeof r?.token === 'string' && r.token.length > 0) {
+      out[peerId] = {
+        pcName: typeof r.pcName === 'string' ? r.pcName : 'Unknown PC',
+        token: r.token,
+        pairedAt: typeof r.pairedAt === 'number' ? r.pairedAt : 0,
+      };
+    }
+  }
+  return out;
 }

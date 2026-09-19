@@ -131,6 +131,24 @@ describe('settings, peers, notices, library', () => {
     expect(run(s, { type: 'peerLeft', id: 'p1' }).peers).toEqual([]);
   });
 
+  it('tracks pending pairing requests and clears them when resolved', () => {
+    const request = { requestId: 'r1', peerId: 'peer-1', pcName: 'LEFTY', address: '192.168.1.40', requestedAt: 5 };
+    let s = run(initialHubState(), { type: 'pairingRequested', request });
+    expect(s.pending).toEqual([request]);
+    // A second hello from the same peer replaces the entry rather than stacking prompts.
+    const again = { ...request, requestId: 'r2', requestedAt: 9 };
+    s = run(s, { type: 'pairingRequested', request: again });
+    expect(s.pending).toEqual([again]);
+    expect(run(s, { type: 'pairingResolved', requestId: 'r2' }).pending).toEqual([]);
+  });
+
+  it('tracks paired peers without ever exposing their tokens', () => {
+    const paired = [{ peerId: 'peer-1', pcName: 'LEFTY', pairedAt: 3 }];
+    const s = run(initialHubState(), { type: 'pairedChanged', paired });
+    expect(s.paired).toEqual(paired);
+    expect(JSON.stringify(s)).not.toContain('token');
+  });
+
   it('notices get increasing ids', () => {
     const s = run(run(initialHubState(), { type: 'notice', message: 'a' }), { type: 'notice', message: 'b' });
     expect(s.notice).toEqual({ id: 2, message: 'b' });

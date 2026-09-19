@@ -49,7 +49,7 @@
     <span>Output device</span>
     <select value={settings.outputDeviceId} onchange={(e) => app.setOutputDevice(e.currentTarget.value)}>
       {#each devices as d (d.id)}
-        <option value={d.id}>{d.id === '' ? 'Windows default' : d.label}</option>
+        <option value={d.id}>{d.id === '' ? 'System default' : d.label}</option>
       {/each}
     </select>
   </label>
@@ -98,6 +98,44 @@
           manual = '';
           void app.saveSettings({ manualHubAddress: null });
         }}>Use discovery</button>
+    </div>
+  </section>
+{/if}
+
+{#if settings.role === 'front'}
+  <section>
+    <h2>Allowed rear PCs</h2>
+    {#if app.hub && app.hub.paired.length > 0}
+      <ul class="fronts">
+        {#each app.hub.paired as peer (peer.peerId)}
+          <li>
+            <span>{peer.pcName}</span>
+            <button onclick={() => app.forgetPeer(peer.peerId)}>Forget</button>
+          </li>
+        {/each}
+      </ul>
+      <p class="muted">A forgotten PC has to be allowed again the next time it connects.</p>
+    {:else}
+      <p class="muted">None yet. When a rear PC connects you will be asked whether to allow it.</p>
+    {/if}
+  </section>
+{:else}
+  <section>
+    <h2>Pairing</h2>
+    {#if app.link === 'awaiting'}
+      <p class="tone-warn">Waiting for someone at the front PC to allow this one.</p>
+    {:else if app.link === 'rejected'}
+      <p class="tone-error">{app.linkReason ?? 'The front PC refused this connection.'}</p>
+    {:else if settings.pairToken}
+      <p class="tone-ok">This PC is paired with the front.</p>
+    {:else}
+      <p class="muted">Not paired yet. The front PC will ask whether to allow this one.</p>
+    {/if}
+    <div class="actions">
+      <button onclick={() => app.retryConnection()}>Try again</button>
+      <button
+        disabled={!settings.pairToken}
+        onclick={() => app.saveSettings({ pairToken: null })}>Forget pairing</button>
     </div>
   </section>
 {/if}

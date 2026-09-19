@@ -2,8 +2,11 @@ import { AUDIO_HEADER_BYTES, AUDIO_MAGIC } from './constants';
 import type { FrontSettings, HubState, Library, RearSettings, RearStats, Role } from './types';
 
 export type ClientMessage =
-  | { type: 'hello'; role: Role; protocolVersion: number; pcName: string }
+  | { type: 'hello'; role: Role; protocolVersion: number; pcName: string; peerId: string; token?: string }
   | { type: 'ping'; t0: number }
+  | { type: 'approvePairing'; requestId: string }
+  | { type: 'denyPairing'; requestId: string }
+  | { type: 'forgetPeer'; peerId: string }
   | { type: 'playAlbum'; albumId: string; startIndex: number }
   | { type: 'playTrack'; trackId: string }
   | { type: 'play' }
@@ -25,13 +28,18 @@ export type HubMessage =
   | { type: 'error'; reason: string }
   | { type: 'state'; state: HubState }
   | { type: 'library'; library: Library }
-  | { type: 'pong'; t0: number; t1: number; t2: number };
+  | { type: 'pong'; t0: number; t1: number; t2: number }
+  /** Sent once, when the front allows this rear. The rear stores the token and reuses it forever. */
+  | { type: 'paired'; token: string }
+  /** Sent while a rear waits for the person at the front to decide. */
+  | { type: 'awaitingApproval' };
 
 const CLIENT_TYPES = new Set<string>([
   'hello', 'ping', 'playAlbum', 'playTrack', 'play', 'pause', 'next', 'prev', 'seek',
   'setRear', 'setFront', 'rescan', 'trackEnded', 'trackFailed', 'position', 'notice', 'rearStats',
+  'approvePairing', 'denyPairing', 'forgetPeer',
 ]);
-const HUB_TYPES = new Set<string>(['welcome', 'error', 'state', 'library', 'pong']);
+const HUB_TYPES = new Set<string>(['welcome', 'error', 'state', 'library', 'pong', 'paired', 'awaitingApproval']);
 
 function parseTyped(text: string, allowed: Set<string>): { type: string } | null {
   try {

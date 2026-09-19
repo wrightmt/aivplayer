@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { Hub } from '../../src/main/hub';
+import { PAIRING_TIMEOUT_MS } from '../../src/shared/constants';
 import { encodeAudioChunk, type AudioChunk } from '../../src/shared/protocol';
-import type { HubPrefs, HubState, Library } from '../../src/shared/types';
+import type { HubPrefs, HubState, Library, PairedPeers } from '../../src/shared/types';
 import { HubClient, type LinkStatus } from '../../src/renderer/src/lib/hubClient';
 import { makeLibrary } from '../helpers/library';
 import { waitFor } from '../helpers/wait';
@@ -21,11 +22,13 @@ async function startHub(extra: Partial<ConstructorParameters<typeof Hub>[0]> = {
   return `ws://127.0.0.1:${port}`;
 }
 
-function connect(url: string, role: 'front' | 'rear', pcName = role.toUpperCase()) {
-  const seen: { state: HubState | null; library: Library | null; audio: AudioChunk[]; status: LinkStatus[]; reason?: string } = {
-    state: null, library: null, audio: [], status: [],
-  };
-  const c = new HubClient({ role, pcName }, {
+function connect(url: string, role: 'front' | 'rear', pcName = role.toUpperCase(), hello: { peerId?: string; token?: string } = {}) {
+  const seen: {
+    state: HubState | null; library: Library | null; audio: AudioChunk[]; status: LinkStatus[];
+    reason?: string; token?: string;
+  } = { state: null, library: null, audio: [], status: [] };
+  const c = new HubClient({ role, pcName, peerId: hello.peerId ?? `peer-${pcName}`, token: hello.token }, {
+    onPaired: (t) => (seen.token = t),
     onState: (s) => (seen.state = s),
     onLibrary: (l) => (seen.library = l),
     onAudio: (a) => seen.audio.push(a),
@@ -68,7 +71,7 @@ describe('Hub', () => {
     let closeCode = 0;
     ws.onmessage = (e) => msgs.push(String(e.data));
     ws.onclose = (e) => (closeCode = e.code);
-    ws.onopen = () => ws.send(JSON.stringify({ type: 'hello', role: 'rear', pcName: 'OLD', protocolVersion: 99 }));
+    ws.onopen = () => ws.send(JSON.stringify({ type: 'hello', role: 'rear', pcName: 'OLD', peerId: 'p', protocolVersion: 99 }));
     await waitFor(() => closeCode !== 0);
     expect(closeCode).toBe(4001);
     expect(JSON.parse(msgs[0])).toMatchObject({ type: 'error' });
@@ -157,5 +160,117 @@ describe('HubClient', () => {
     hub = new Hub({ port, host: '127.0.0.1', hubId: 'hub-1', pcName: 'STUDY-PC', library: makeLibrary() });
     await hub.start();
     await waitFor(() => rear.c.status === 'open', 5000);
+  });
+});
+
+describe('Hub pairing', () => {
+  /** Starts a hub that treats every connection as if it came from another PC on the LAN. */
+  const startRemoteHub = (extra: Partial<ConstructorParameters<typeof Hub>[0]> = {}) =>
+    startHub({ isLocalAddress: () => false, ...extra });
+
+  it('holds an unknown rear until the front allows it, then issues a token', async () => {
+    const saved: PairedPeers[] = [];
+    const url = await startRemoteHub({ onPairedChanged: (p) => saved.push(p) });
+    const rear = connect(url, 'rear', 'LEFTY', { peerId: 'peer-1' });
+    await waitFor(() => rear.c.status === 'awaiting');
+    // Nothing is handed over before approval.
+    expect(rear.seen.library).toBeNull();
+    expect(rear.seen.state).toBeNull();
+    expect(hub!.getState().peers).toEqual([]);
+    const request = hub!.getState().pending[0];
+    expect(request).toMatchObject({ peerId: 'peer-1', pcName: 'LEFTY' });
+
+    hub!['approvePairing'](request.requestId);
+    await waitFor(() => rear.c.status === 'open' && rear.seen.library !== null);
+    expect(rear.seen.token).toMatch(/^[0-9a-f]{64}$/);
+    expect(hub!.getState().pending).toEqual([]);
+    expect(hub!.getState().paired).toEqual([{ peerId: 'peer-1', pcName: 'LEFTY', pairedAt: expect.any(Number) }]);
+    expect(saved.at(-1)!['peer-1'].token).toBe(rear.seen.token);
+  });
+
+  it('lets a rear back in silently once it holds the token', async () => {
+    const paired = { 'peer-1': { pcName: 'LEFTY', token: 'a'.repeat(64), pairedAt: 1 } };
+    const url = await startRemoteHub({ paired });
+    const rear = connect(url, 'rear', 'LEFTY', { peerId: 'peer-1', token: 'a'.repeat(64) });
+    await waitFor(() => rear.c.status === 'open' && rear.seen.library !== null);
+    expect(hub!.getState().pending).toEqual([]);
+    expect(rear.seen.token).toBeUndefined();
+  });
+
+  it('prompts again when the token is wrong', async () => {
+    const paired = { 'peer-1': { pcName: 'LEFTY', token: 'a'.repeat(64), pairedAt: 1 } };
+    const url = await startRemoteHub({ paired });
+    const rear = connect(url, 'rear', 'LEFTY', { peerId: 'peer-1', token: 'b'.repeat(64) });
+    await waitFor(() => hub!.getState().pending.length === 1);
+    expect(rear.c.status).toBe('awaiting');
+  });
+
+  it('refuses a denied rear for a cooldown, and stops it reconnecting', async () => {
+    const url = await startRemoteHub();
+    const rear = connect(url, 'rear', 'LEFTY', { peerId: 'peer-1' });
+    await waitFor(() => hub!.getState().pending.length === 1);
+    hub!['denyPairing'](hub!.getState().pending[0].requestId);
+    await waitFor(() => rear.c.status === 'rejected');
+    expect(rear.seen.reason).toContain('declined');
+    expect(hub!.getState().pending).toEqual([]);
+
+    // A second attempt inside the cooldown is turned away without bothering the front again.
+    const again = connect(url, 'rear', 'LEFTY', { peerId: 'peer-1' });
+    await waitFor(() => again.c.status === 'rejected');
+    expect(hub!.getState().pending).toEqual([]);
+  });
+
+  it('will not let a remote PC claim to be the front', async () => {
+    const url = await startRemoteHub();
+    const impostor = connect(url, 'front', 'EVIL', { peerId: 'peer-evil' });
+    await waitFor(() => impostor.c.status === 'rejected');
+    expect(impostor.seen.reason).toContain('Only this PC can be the front');
+    expect(hub!.getState().peers).toEqual([]);
+    expect(hub!.getState().pending).toEqual([]);
+  });
+
+  it('ignores approvals sent by a remote PC', async () => {
+    const paired = { 'peer-1': { pcName: 'LEFTY', token: 'a'.repeat(64), pairedAt: 1 } };
+    const url = await startRemoteHub({ paired });
+    const rear = connect(url, 'rear', 'LEFTY', { peerId: 'peer-1', token: 'a'.repeat(64) });
+    await waitFor(() => rear.c.status === 'open');
+    const intruder = connect(url, 'rear', 'EVIL', { peerId: 'peer-evil' });
+    await waitFor(() => hub!.getState().pending.length === 1);
+    const requestId = hub!.getState().pending[0].requestId;
+
+    rear.c.send({ type: 'approvePairing', requestId });
+    await new Promise((r) => setTimeout(r, 80));
+    expect(hub!.getState().pending).toHaveLength(1);
+    expect(intruder.seen.library).toBeNull();
+  });
+
+  it('forgets a peer and drops its live connection', async () => {
+    const paired = { 'peer-1': { pcName: 'LEFTY', token: 'a'.repeat(64), pairedAt: 1 } };
+    const url = await startHub({ isLocalAddress: (a) => a === 'never', paired });
+    const rear = connect(url, 'rear', 'LEFTY', { peerId: 'peer-1', token: 'a'.repeat(64) });
+    await waitFor(() => rear.c.status === 'open');
+    hub!['forgetPeer']('peer-1');
+    await waitFor(() => rear.c.status === 'rejected');
+    expect(hub!.getState().paired).toEqual([]);
+  });
+
+  it('turns away a browser page from another origin', async () => {
+    const url = await startRemoteHub();
+    const ws = new WebSocket(url, { headers: { origin: 'https://evil.example' } } as never);
+    let closeCode = 0;
+    ws.onclose = (e) => (closeCode = e.code);
+    await waitFor(() => closeCode !== 0);
+    expect(closeCode).toBe(4003);
+  });
+
+  it('gives up on a request nobody answers', async () => {
+    let clock = 1_000_000;
+    const url = await startRemoteHub({ now: () => clock });
+    const rear = connect(url, 'rear', 'LEFTY', { peerId: 'peer-1' });
+    await waitFor(() => hub!.getState().pending.length === 1);
+    clock += PAIRING_TIMEOUT_MS + 1;
+    await waitFor(() => rear.c.status === 'rejected', 5000);
+    expect(hub!.getState().pending).toEqual([]);
+    expect(rear.seen.reason).toContain('No answer');
   });
 });

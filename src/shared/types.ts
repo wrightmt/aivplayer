@@ -76,16 +76,37 @@ export interface Notice {
   message: string;
 }
 
+/** A rear PC waiting for the person at the front PC to allow or deny it. */
+export interface PairingRequest {
+  requestId: string;
+  peerId: string;
+  pcName: string;
+  address: string;
+  requestedAt: number;
+}
+
+/** A rear PC the front has already allowed. The token itself never leaves the front's disk. */
+export interface PairedPeer {
+  peerId: string;
+  pcName: string;
+  pairedAt: number;
+}
+
 export interface HubState {
   player: PlayerState;
   rear: RearSettings;
   front: FrontSettings;
   peers: Peer[];
   notice: Notice | null;
+  /** Rear PCs awaiting approval. Shown only by the front's UI. */
+  pending: PairingRequest[];
+  /** Rear PCs already allowed, so the front can list and forget them. */
+  paired: PairedPeer[];
 }
 
 export interface LocalSettings {
   role: Role | null;
+  /** Stable per-install UUID: this PC's hub id when it is the front, its peer id when it is a rear. */
   hubId: string;
   outputDeviceId: string;
   libraryFolder: string | null;
@@ -93,7 +114,17 @@ export interface LocalSettings {
   hubPort: number;
   pairedHubId: string | null;
   manualHubAddress: string | null;
+  /** Rear only: the secret this PC was issued when the front allowed it. Cleared when the front changes. */
+  pairToken: string | null;
 }
+
+/** Front only, persisted outside HubState so tokens are never broadcast. */
+export interface PairedRecord {
+  pcName: string;
+  token: string;
+  pairedAt: number;
+}
+export type PairedPeers = Record<string, PairedRecord>;
 
 export interface HubPrefs {
   rear: RearSettings;

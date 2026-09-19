@@ -3,6 +3,7 @@
   import AmbiencePanel from './lib/components/AmbiencePanel.svelte';
   import LibraryView from './lib/components/LibraryView.svelte';
   import NowPlaying from './lib/components/NowPlaying.svelte';
+  import PairingPrompt from './lib/components/PairingPrompt.svelte';
   import RolePicker from './lib/components/RolePicker.svelte';
   import SettingsView from './lib/components/SettingsView.svelte';
   import Toasts from './lib/components/Toasts.svelte';
@@ -34,6 +35,7 @@
     <footer><NowPlaying /></footer>
   </div>
 {/if}
+<PairingPrompt />
 <Toasts />
 
 <style>

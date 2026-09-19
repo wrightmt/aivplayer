@@ -5,15 +5,16 @@ import { join } from 'node:path';
 import { chooseFront, type DiscoveryStatus, type SeenFront } from '../shared/beacon';
 import { PROTOCOL_VERSION } from '../shared/constants';
 import { IPC, type FrontStatus } from '../shared/ipc';
-import type { HubPrefs, Library, LocalSettings } from '../shared/types';
+import type { HubPrefs, Library, LocalSettings, PairedPeers } from '../shared/types';
 import { BeaconBroadcaster, DiscoveryListener } from './discovery';
 import { Hub } from './hub';
 import { scanLibrary } from './library';
-import { loadHubPrefs, loadSettings, sanitizeSettings, writeJson } from './settings';
+import { loadHubPrefs, loadPairedPeers, loadSettings, sanitizeSettings, writeJson } from './settings';
 
 const pcName = hostname().toUpperCase();
 let settingsFile = '';
 let hubPrefsFile = '';
+let pairedFile = '';
 
 let settings: LocalSettings;
 let win: BrowserWindow | null = null;
@@ -68,14 +69,18 @@ async function rescan(): Promise<void> {
 }
 
 async function startFront(): Promise<void> {
-  const prefs = await loadHubPrefs(hubPrefsFile);
+  const [prefs, paired] = await Promise.all([loadHubPrefs(hubPrefsFile), loadPairedPeers(pairedFile)]);
   hub = new Hub({
     port: settings.hubPort,
     hubId: settings.hubId,
     pcName,
     library,
     prefs,
+    paired,
     onPrefsChanged: (p) => scheduleHubPrefsWrite(p),
+    onPairedChanged: (p: PairedPeers) => {
+      void writeJson(pairedFile, p).catch((err) => console.error('Failed to write paired PCs', err));
+    },
     onRescan: () => void rescan(),
   });
   try {
@@ -136,6 +141,10 @@ const RELAUNCH_KEYS: (keyof LocalSettings)[] = ['role', 'hubPort', 'beaconPort']
 async function saveSettings(patch: Partial<LocalSettings>): Promise<LocalSettings> {
   const prev = settings;
   settings = sanitizeSettings({ ...prev, ...patch }, prev);
+  // A token is only good for the front that issued it; moving to a different front means pairing again.
+  if (prev.pairedHubId && settings.pairedHubId !== prev.pairedHubId && patch.pairToken === undefined) {
+    settings = { ...settings, pairToken: null };
+  }
   await writeJson(settingsFile, settings);
   if (RELAUNCH_KEYS.some((k) => prev[k] !== settings[k])) {
     flushHubPrefs();
@@ -208,6 +217,7 @@ if (!app.requestSingleInstanceLock()) {
   void app.whenReady().then(async () => {
     settingsFile = join(app.getPath('userData'), 'settings.json');
     hubPrefsFile = join(app.getPath('userData'), 'hub-prefs.json');
+    pairedFile = join(app.getPath('userData'), 'paired.json');
     settings = await loadSettings(settingsFile);
     registerIpc();
     createWindow();

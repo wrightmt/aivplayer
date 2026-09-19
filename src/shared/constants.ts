@@ -1,5 +1,6 @@
 export const APP_ID = 'aivplayer';
-export const PROTOCOL_VERSION = 1;
+// v2 added pairing: `hello` carries peerId/token and remote rears must be approved at the front.
+export const PROTOCOL_VERSION = 2;
 
 export const SAMPLE_RATE = 48000;
 export const CHUNK_FRAMES = 1024;
@@ -19,6 +20,11 @@ export const RAMP_MS = 30;
 export const RESYNC_THRESHOLD_MS = 20;
 export const MAX_CORRECTION_PPM = 500;
 export const CONTROL_INTERVAL_MS = 500;
+
+/** How long an unapproved rear is held before the hub gives up and closes it. */
+export const PAIRING_TIMEOUT_MS = 60_000;
+/** Minimum gap between prompts for the same peer, so a hostile client cannot spam the front's screen. */
+export const PAIRING_COOLDOWN_MS = 30_000;
 
 export const DEFAULT_PRESENTATION_DELAY_MS = 100;
 export const LARGE_TRACK_SEC = 3600;

@@ -3,7 +3,7 @@ import { decodeAudioChunk, parseHubMessage, type AudioChunk, type ClientMessage 
 import { ClockSync } from '../../../shared/sync/clockSync';
 import type { HubState, Library, Role } from '../../../shared/types';
 
-export type LinkStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'rejected';
+export type LinkStatus = 'idle' | 'connecting' | 'awaiting' | 'open' | 'closed' | 'rejected';
 
 export interface HubClientEvents {
   onState?: (s: HubState) => void;
@@ -11,6 +11,8 @@ export interface HubClientEvents {
   onAudio?: (c: AudioChunk) => void;
   onWelcome?: (hub: { hubId: string; pcName: string }) => void;
   onStatus?: (status: LinkStatus, reason?: string) => void;
+  /** The front allowed this PC; persist the token so later launches connect silently. */
+  onPaired?: (token: string) => void;
 }
 
 const PING_MS = 1000;
@@ -31,10 +33,15 @@ export class HubClient {
   private rejected = false;
 
   constructor(
-    private readonly hello: { role: Role; pcName: string },
+    private readonly hello: { role: Role; pcName: string; peerId: string; token?: string | null },
     readonly events: HubClientEvents = {},
     private readonly localNow: () => number = () => performance.timeOrigin + performance.now(),
   ) {}
+
+  /** Replaces the pairing token used by this and every later connection. */
+  setToken(token: string | null): void {
+    this.hello.token = token;
+  }
 
   /** Connects to whatever URL getUrl returns, reconnecting every second after a drop. */
   start(getUrl: () => string | null): void {
@@ -85,7 +92,16 @@ export class HubClient {
     ws.binaryType = 'arraybuffer';
     this.ws = ws;
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'hello', role: this.hello.role, pcName: this.hello.pcName, protocolVersion: PROTOCOL_VERSION }));
+      ws.send(
+        JSON.stringify({
+          type: 'hello',
+          role: this.hello.role,
+          pcName: this.hello.pcName,
+          peerId: this.hello.peerId,
+          ...(this.hello.token ? { token: this.hello.token } : {}),
+          protocolVersion: PROTOCOL_VERSION,
+        }),
+      );
       this.clock.reset();
       this.lastReceived = this.localNow();
       this.ping();
@@ -93,7 +109,8 @@ export class HubClient {
       this.watchdogTimer = setInterval(() => {
         if (this.ws === ws && this.localNow() - this.lastReceived > LIVENESS_TIMEOUT_MS) ws.close();
       }, WATCHDOG_MS);
-      this.setStatus('open');
+      // 'open' is deliberately not set here: the hub may still hold us for pairing approval.
+      // It is set on `welcome`, which is the hub saying we are admitted.
     };
     ws.onmessage = (ev: MessageEvent) => {
       this.lastReceived = this.localNow();
@@ -116,6 +133,14 @@ export class HubClient {
           break;
         case 'welcome':
           this.events.onWelcome?.({ hubId: msg.hubId, pcName: msg.pcName });
+          this.setStatus('open');
+          break;
+        case 'awaitingApproval':
+          this.setStatus('awaiting');
+          break;
+        case 'paired':
+          this.setToken(msg.token);
+          this.events.onPaired?.(msg.token);
           break;
         case 'error':
           this.rejected = true;

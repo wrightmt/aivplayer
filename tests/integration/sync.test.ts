@@ -51,7 +51,7 @@ describe('front → hub → rear sync over real WebSockets', () => {
     const core = new PlayerCore({ delayFrames: (D_MS * SAMPLE_RATE) / 1000 });
     let frontEpoch = 0;
     let streamStartTrue = 0; // true ms at which stream frame 0 of the current epoch is heard
-    const front = new HubClient({ role: 'front', pcName: 'FRONT' }, {
+    const front = new HubClient({ peerId: 'front-pc', role: 'front', pcName: 'FRONT' }, {
       onState: (s: HubState) => {
         if (s.player.epoch !== frontEpoch && s.player.status === 'playing') {
           frontEpoch = s.player.epoch;
@@ -64,7 +64,7 @@ describe('front → hub → rear sync over real WebSockets', () => {
     const rear = new RearProcessor();
     rear.setParams({ enabled: true, mode: 'difference', singleSide: 'L', gainDb: 0, delayMs: REAR_DELAY_MS, frontVolumeDb: 0 });
     let received = 0;
-    const rearClient = new HubClient({ role: 'rear', pcName: 'REAR' }, {
+    const rearClient = new HubClient({ peerId: 'rear-pc', role: 'rear', pcName: 'REAR' }, {
       onState: (s) => rear.setEpoch(s.player.epoch),
       onAudio: (c) => {
         received++;

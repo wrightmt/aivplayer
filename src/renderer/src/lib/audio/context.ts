@@ -12,7 +12,7 @@ export async function listOutputDevices(): Promise<{ id: string; label: string }
 
 /**
  * Owns the AudioContext for one engine: fixed 48 kHz, chosen output device with fallback to the
- * Windows default when the device disappears, and the context-frame → hub-time map.
+ * system default when the device disappears, and the context-frame → hub-time map.
  */
 export class AudioOutput {
   readonly ctx = new AudioContext({ sampleRate: SAMPLE_RATE, latencyHint: 'playback' });
@@ -31,7 +31,7 @@ export class AudioOutput {
     } catch {
       this.deviceId = '';
       await this.ctx.setSinkId('');
-      this.notify('Saved output device not found; using the Windows default device');
+      this.notify('Saved output device not found; using the system default device');
     }
     if (this.ctx.state !== 'running') await this.ctx.resume();
   }
@@ -54,7 +54,7 @@ export class AudioOutput {
       this.deviceId = '';
       this.filter.reset();
       await this.ctx.setSinkId('');
-      this.notify('Output device was removed; switched to the Windows default device');
+      this.notify('Output device was removed; switched to the system default device');
     }
   }
 }

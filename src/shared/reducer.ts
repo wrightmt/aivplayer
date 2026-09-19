@@ -4,6 +4,8 @@ import type {
   HubPrefs,
   HubState,
   Library,
+  PairedPeer,
+  PairingRequest,
   Peer,
   PlayerState,
   RearSettings,
@@ -27,6 +29,9 @@ export type HubAction =
   | { type: 'peerJoined'; peer: Peer }
   | { type: 'peerLeft'; id: string }
   | { type: 'peerStats'; id: string; stats: RearStats }
+  | { type: 'pairingRequested'; request: PairingRequest }
+  | { type: 'pairingResolved'; requestId: string }
+  | { type: 'pairedChanged'; paired: PairedPeer[] }
   | { type: 'libraryChanged' };
 
 export interface ReduceContext {
@@ -64,6 +69,8 @@ export function initialHubState(prefs?: Partial<HubPrefs>): HubState {
     front: sanitizeFront(DEFAULT_FRONT, prefs?.front ?? {}),
     peers: [],
     notice: null,
+    pending: [],
+    paired: [],
   };
 }
 
@@ -157,6 +164,13 @@ export function reduce(s: HubState, a: HubAction, ctx: ReduceContext): HubState 
       return { ...s, peers: s.peers.filter((x) => x.id !== a.id) };
     case 'peerStats':
       return { ...s, peers: s.peers.map((x) => (x.id === a.id ? { ...x, stats: a.stats } : x)) };
+    case 'pairingRequested':
+      // One prompt per peer: a reconnecting rear replaces its old request rather than stacking another.
+      return { ...s, pending: [...s.pending.filter((x) => x.peerId !== a.request.peerId), a.request] };
+    case 'pairingResolved':
+      return { ...s, pending: s.pending.filter((x) => x.requestId !== a.requestId) };
+    case 'pairedChanged':
+      return { ...s, paired: a.paired };
     case 'libraryChanged':
       if (p.queue.every((id) => ctx.library.tracks[id])) return s;
       return { ...s, player: restart(p, { queue: [], index: 0, status: 'stopped' }) };

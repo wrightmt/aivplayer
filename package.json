@@ -1,6 +1,6 @@
 {
   "name": "aivplayer",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
@@ -32,5 +32,9 @@
     "dist:win": "electron-vite build && electron-builder --win zip",
     "dist:linux": "electron-vite build && electron-builder --linux"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wrightmt/aivplayer.git"
+  }
 }

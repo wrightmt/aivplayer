@@ -21,7 +21,7 @@
     "music-metadata": "^11.15.0",
     "ws": "^8.21.3"
   },
-  "description": "Two-PC FLAC player recreating Eno's Ambient 4: On Land three-speaker difference arrangement",
+  "description": "Three-speaker FLAC player: a rear speaker carries the L-R difference signal, synced across two PCs",
   "author": "Matt Wright",
   "scripts": {
     "dev": "electron-vite dev",
@@ -31,5 +31,6 @@
     "check": "tsc --noEmit -p tsconfig.json && svelte-check --tsconfig ./tsconfig.json",
     "dist:win": "electron-vite build && electron-builder --win zip",
     "dist:linux": "electron-vite build && electron-builder --linux"
-  }
+  },
+  "license": "MIT"
 }

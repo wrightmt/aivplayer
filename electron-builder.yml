@@ -2,6 +2,7 @@ appId: com.mattwright.aivplayer
 productName: aIVplayer
 directories:
   output: dist
+  buildResources: build
 files:
   - out/**
   - package.json
@@ -9,8 +10,7 @@ win:
   target:
     - target: zip
       arch: [x64]
-  # Skips rcedit/signing, which would need Wine when building on Linux/WSL.
-  signAndEditExecutable: false
+  icon: build/icon.png
 linux:
   target:
     - target: AppImage
@@ -18,4 +18,5 @@ linux:
     - target: tar.gz
       arch: [x64]
   category: AudioVideo
-  synopsis: Eno three-speaker (L-R difference) FLAC player for two PCs
+  synopsis: Three-speaker (L-R difference) FLAC player for two PCs
+  icon: build/icon.png

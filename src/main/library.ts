@@ -2,16 +2,19 @@ import { createHash } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 import { parseFile } from 'music-metadata';
+import { AUDIO_EXTENSIONS } from '../shared/constants';
 import type { Album, Library, Track } from '../shared/types';
 
 const id = (s: string): string => createHash('sha1').update(s).digest('hex').slice(0, 16);
 
-async function findFlacs(dir: string, out: string[] = []): Promise<string[]> {
+const AUDIO_EXTS = new Set<string>(AUDIO_EXTENSIONS);
+
+async function findAudioFiles(dir: string, out: string[] = []): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });
   for (const e of entries) {
     const full = join(dir, e.name);
-    if (e.isDirectory()) await findFlacs(full, out);
-    else if (e.isFile() && extname(e.name).toLowerCase() === '.flac') out.push(full);
+    if (e.isDirectory()) await findAudioFiles(full, out);
+    else if (e.isFile() && AUDIO_EXTS.has(extname(e.name).toLowerCase())) out.push(full);
   }
   return out;
 }
@@ -28,7 +31,7 @@ export async function scanLibrary(folder: string): Promise<ScanResult> {
   const albumArtists = new Map<string, string>();
   let files: string[];
   try {
-    files = await findFlacs(folder);
+    files = await findAudioFiles(folder);
   } catch (e) {
     return { library: { albums: [], tracks: {} }, errors: [`Cannot read ${folder}: ${(e as Error).message}`] };
   }

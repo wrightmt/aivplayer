@@ -164,7 +164,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.getSettings, () => settings);
   ipcMain.handle(IPC.saveSettings, (_e, patch: Partial<LocalSettings>) => saveSettings(patch));
   ipcMain.handle(IPC.chooseLibraryFolder, async () => {
-    const r = await dialog.showOpenDialog(win!, { properties: ['openDirectory'], title: 'Choose your FLAC library folder' });
+    const r = await dialog.showOpenDialog(win!, { properties: ['openDirectory'], title: 'Choose your music library folder' });
     return r.canceled ? null : (r.filePaths[0] ?? null);
   });
   ipcMain.handle(IPC.readTrack, async (_e, trackId: string) => {

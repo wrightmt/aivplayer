@@ -30,7 +30,7 @@ export interface AivApi {
   /** Saves and returns merged settings. Changing role or ports relaunches the app. */
   saveSettings(patch: Partial<LocalSettings>): Promise<LocalSettings>;
   chooseLibraryFolder(): Promise<string | null>;
-  /** Front only: raw FLAC bytes for a library track. */
+  /** Front only: the track's raw encoded bytes, decoded in the renderer. */
   readTrack(trackId: string): Promise<ArrayBuffer>;
   getFrontStatus(): Promise<FrontStatus>;
   onFrontStatus(cb: (s: FrontStatus) => void): () => void;

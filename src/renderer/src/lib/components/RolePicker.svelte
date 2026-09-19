@@ -16,7 +16,7 @@
   <div class="choices">
     <button disabled={saving} onclick={() => choose('front')}>
       <strong>Front</strong>
-      <span>The stereo pair in front of you. This PC holds the FLAC library and plays the normal stereo mix.</span>
+      <span>The stereo pair in front of you. This PC holds the music library and plays the normal stereo mix.</span>
     </button>
     <button disabled={saving} onclick={() => choose('rear')}>
       <strong>Rear</strong>

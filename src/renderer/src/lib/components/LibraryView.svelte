@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { AUDIO_FORMATS_LABEL } from '../../../../shared/constants';
   import { app } from '../app.svelte';
   import { formatTime } from '../format';
 
@@ -17,7 +18,7 @@
   <div class="empty">
     {#if app.role === 'front'}
       <p>No music yet.</p>
-      <p class="muted">Choose the folder that holds your FLAC files.</p>
+      <p class="muted">Choose the folder that holds your music ({AUDIO_FORMATS_LABEL}).</p>
       <button class="primary" onclick={chooseFolder}>Choose folder</button>
     {:else if app.link === 'open'}
       <p>The front PC's library is empty.</p>

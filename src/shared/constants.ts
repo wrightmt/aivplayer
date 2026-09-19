@@ -2,6 +2,14 @@ export const APP_ID = 'aivplayer';
 // v2 added pairing: `hello` carries peerId/token and remote rears must be approved at the front.
 export const PROTOCOL_VERSION = 2;
 
+/**
+ * Extensions the library scanner picks up. Electron decodes all of these natively, so a format
+ * may only be added here once Chromium can actually play it — ALAC in .m4a, for instance, cannot.
+ */
+export const AUDIO_EXTENSIONS = ['.flac', '.mp3', '.wav'] as const;
+/** The same list as UI copy. */
+export const AUDIO_FORMATS_LABEL = 'FLAC, MP3 or WAV';
+
 export const SAMPLE_RATE = 48000;
 export const CHUNK_FRAMES = 1024;
 
